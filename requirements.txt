@@ -1,2 +1,0 @@
-dashscope>=1.23.9
-gradio-client
