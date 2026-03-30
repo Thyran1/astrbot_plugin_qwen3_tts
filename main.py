@@ -146,7 +146,7 @@ class MessageSplitterPlugin(Star):
     def get_plugin_data_dir(self):
         """获取插件数据存储目录"""
         current_dir = os.path.dirname(__file__)
-        plugin_name = "message_splitter"  # 可根据需要修改
+        plugin_name = "astrbot_plugin_qwen3_tts"  # 可根据需要修改
         data_dir = os.path.join(
             os.path.dirname(os.path.dirname(current_dir)),
             "plugin_data",
