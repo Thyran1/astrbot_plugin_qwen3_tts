@@ -18,7 +18,7 @@ from astrbot.core.star.session_llm_manager import SessionServiceManager
 # Qwen3 TTS 相关导入
 from gradio_client import Client, handle_file
 
-@register("astrbot_plugin_Qwen3_tts", "Thyran1", "基于本地部署的Qwen3-tts，为astrbot提供文本转语音(TTS)服务，可自定义音色", "1.0.0")
+@register("astrbot_plugin_qwen3_tts", "Thyran1", "基于本地部署的Qwen3-TTS，为astrbot提供文本转语音(TTS)服务，可自定义音色", "1.0.0")
 class MessageSplitterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -119,7 +119,7 @@ class MessageSplitterPlugin(Star):
                 lang_disp="Auto",
                 api_name="/load_prompt_and_gen"
             )
-            logger.debug(f"[Qwen3-tts] 原始返回: {result}")
+            logger.debug(f"[Qwen3-TTS] 原始返回: {result}")
 
             if not isinstance(result, (list, tuple)) or len(result) < 2:
                 raise ValueError(f"返回格式错误: {result}")
@@ -133,11 +133,11 @@ class MessageSplitterPlugin(Star):
             # 放宽状态检查
             error_keywords = ["error", "fail", "失败", "异常"]
             if any(keyword in status.lower() for keyword in error_keywords):
-                raise Exception(f"Qwen3-tts 返回错误状态: {status}")
+                raise Exception(f"Qwen3-TTS 返回错误状态: {status}")
 
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             shutil.copy2(audio_path, output_path)
-            logger.info(f"[Qwen3-tts] 已保存至: {output_path}")
+            logger.info(f"[Qwen3-TTS] 已保存至: {output_path}")
 
         except Exception as e:
             logger.error(f"_call_gradio_tts error: {e}")
@@ -354,7 +354,7 @@ class MessageSplitterPlugin(Star):
             for comp in segment:
                 if isinstance(comp, Plain) and len(comp.text) > 1:
                     try:
-                        logger.info(f"[Qwen3-tts] 请求: {comp.text[:50]}...")
+                        logger.info(f"[Qwen3-TTS] 请求: {comp.text[:50]}...")
                         audio_path = await self.generate_tts(comp.text)
                         if audio_path:
                             # 替换为语音组件
@@ -362,10 +362,10 @@ class MessageSplitterPlugin(Star):
                             # 是否同时保留文本？可根据需要配置
                             # if dual_output: new_segment.append(comp)
                         else:
-                            logger.warning(f"[Qwen3-tts] 生成失败，使用原文本")
+                            logger.warning(f"[Qwen3-TTS] 生成失败，使用原文本")
                             new_segment.append(comp)
                     except Exception as e:
-                        logger.error(f"[Qwen3-tts] 处理失败: {e}，使用原文本")
+                        logger.error(f"[Qwen3-TTS] 处理失败: {e}，使用原文本")
                         new_segment.append(comp)
                 else:
                     new_segment.append(comp)
