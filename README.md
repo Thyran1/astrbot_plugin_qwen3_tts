@@ -102,7 +102,7 @@ http://localhost:8000/
 |-----------------|-----------|-----------------|
 | `enable_split`  | 启用分段      | `开 `            |
 | `split_llmonly`   | 只处理LLM结果  | `开`             |
-| `split_chars`   | 要分段的标点符号  | `. 。？！；; \n \s` |
+| `force_split_chars`   | 强制分段的标点符号 | `. 。？！；; \n \s` |
 | `max_segments`  | 最大分段数量    | 建议`5-8`         |
 | `delay_strategy` | 延迟模式      |                 |
 | `linear_base`   | 按字数延迟基础时间 |                 |

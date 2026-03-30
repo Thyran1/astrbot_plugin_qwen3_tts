@@ -80,13 +80,34 @@
             "type": "bool",
             "default": true
           },
-            "split_chars": {
-            "description": "分段字符",
+            "force_split_chars": {
+            "description": "强制分段字符",
             "hint": "\\s表示遇到空格符会分段 \\n表示遇到换行符会分段",
             "type": "string",
             "default": ". 。？！；; \\n \\s"
           },
-
+             "enable_probabilistic_split": {
+            "type": "bool",
+            "description": "启用概率分段",
+            "hint": "遇到标点时按概率分段",
+            "default": false
+          },
+          "probabilistic_split_chars": {
+            "type": "string",
+            "description": "概率分段字符",
+            "hint": "推荐填入逗号 , ， ",
+            "default": "，,"
+          },
+          "split_probability": {
+            "type": "float",
+            "description": "概率分段触发概率",
+            "slider": {
+                    "min": 0,
+                    "max": 1,
+                    "step": 0.01
+                },
+            "default": 0.5
+          },
 
           "max_segments": {
             "description": "分段数量",
@@ -94,9 +115,6 @@
             "type": "int",
             "default": 7
           },
-
-
-
 
           "delay_strategy": {
             "description": "段间延迟模式",
@@ -153,33 +171,7 @@
           }
             }
 
-        },
-
-
-
-          "enable_probabilistic_split": {
-            "type": "bool",
-            "description": "启用概率分段",
-            "hint": "遇到标点时按概率分段",
-            "default": false
-          },
-          "probabilistic_split_chars": {
-            "type": "string",
-            "description": "概率分段字符",
-            "hint": "推荐填入逗号 , ， ",
-            "default": "，,"
-          },
-          "split_probability": {
-            "type": "float",
-            "description": "概率分段触发概率",
-            "slider": {
-                    "min": 0,
-                    "max": 1,
-                    "step": 0.01
-                },
-            "default": 0.5
-          }
-
+        }
 
         }
   }
