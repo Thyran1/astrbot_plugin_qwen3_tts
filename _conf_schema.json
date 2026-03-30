@@ -1,0 +1,187 @@
+{
+
+"use_gradio_tts": {
+    "type": "bool",
+    "description": "启用Qwen3-TTS",
+     "hint": "Qwen3-TTS文字转语音开关，请确保Qwen3-TTS本地端口已正确运行",
+    "default": false
+  },
+
+   "client": {
+        "description": "Qwen3-TTS端口配置",
+        "type": "object",
+        "items": {
+            "gradio_server_url": {
+                "description": "Qwen3-TTS本地端口地址",
+                "type": "string",
+                "hint": "默认http://localhost:8000/",
+                "default": "http://localhost:8000/"
+            },
+            "gradio_prompt_file": {
+            "type": "string",
+            "description": "音色文件路径",
+            "hint": "音色(.pt)文件路径，需先使用Qwen3-TTS webui音色克隆生成",
+            "default": ""
+            },
+            "gradio_save_audio": {
+            "type": "bool",
+            "description": "保存生成的音频文件",
+            "hint": "保存的文件地址..\\data\\plugin_data\\astrbot_plugin_qwen3_tts",
+            "default": false
+            }
+        }
+    },
+   "tts_control": {
+        "description": "TTS配置",
+        "type": "object",
+        "items": {
+            "gradio_tts_probability": {
+            "type": "float",
+            "description": "TTS触发概率",
+            "hint": "文字转语音的概率总控制",
+              "slider": {
+                    "min": 0,
+                    "max": 1,
+                    "step": 0.01
+                },
+            "default": 0.5
+            },
+            "tts_min_length": {
+              "type": "int",
+              "description": "触发 TTS 的最小字数",
+              "hint": "小于该值则不触发TTS",
+              "default": 5,
+              "min": 0
+            },
+            "tts_max_length": {
+              "type": "int",
+              "description": "触发 TTS 的最大字数",
+              "hint": "大于该值则不触发TTS",
+              "default": 30,
+              "min": 0
+            }
+
+        }
+    },
+  "enable_split": {
+    "type": "bool",
+    "description": "启用分段",
+     "hint": "分段总开关",
+    "default": false
+  },
+  "split_control": {
+        "description": "分段配置",
+        "hint": "模拟正常人说话",
+        "type": "object",
+        "items": {
+          "split_llmonly":{
+            "description": "只处理LLM结果",
+            "hint": "开启后只对LLM生成结果进行分段，推荐开启",
+            "type": "bool",
+            "default": true
+          },
+            "split_chars": {
+            "description": "分段字符",
+            "hint": "\\s表示遇到空格符会分段 \\n表示遇到换行符会分段",
+            "type": "string",
+            "default": ". 。？！；; \\n \\s"
+          },
+
+
+          "max_segments": {
+            "description": "分段数量",
+            "hint": "分段数小于该值正常发送，大于该值将合并超出段数内容一起发送",
+            "type": "int",
+            "default": 7
+          },
+
+
+
+
+          "delay_strategy": {
+            "description": "段间延迟模式",
+            "type": "string",
+            "options": ["按字数", "随机", "固定"],
+            "default": "按字数"
+          },
+
+          "linear_control": {
+            "description": "按字数延迟",
+            "hint": "延迟时间 = 基础时间 + 字数 * 系数",
+            "type": "object",
+            "items": {
+              "linear_base": {
+                "description": "基础时间(秒)",
+                "type": "float",
+                "default": 0.5
+              },
+               "linear_factor": {
+                 "description": "延迟系数(秒/字)",
+                 "type": "float",
+                 "default": 0.1
+               }
+            }
+          },
+
+          "random_control": {
+            "description": "随机延迟",
+            "hint": "延迟时间 = 随机",
+            "type": "object",
+            "items": {
+              "random_min": {
+                "description": "随机延迟最小值(秒)",
+                "type": "float",
+                "default": 1.0
+              },
+              "random_max": {
+                "description": "随机延迟最大值(秒)",
+                "type": "float",
+                "default": 3.0
+              }
+            }
+
+          },
+        "fixed_control": {
+          "description": "随机延迟",
+          "hint": "延迟时间 = 固定",
+            "type": "object",
+            "items": {
+              "fixed_delay": {
+               "description": "固定延迟时间(秒)",
+               "type": "float",
+               "default": 1.5
+          }
+            }
+
+        },
+
+
+
+          "enable_probabilistic_split": {
+            "type": "bool",
+            "description": "启用概率分段",
+            "hint": "遇到标点时按概率分段",
+            "default": false
+          },
+          "probabilistic_split_chars": {
+            "type": "string",
+            "description": "概率分段字符",
+            "hint": "推荐填入逗号 , ， ",
+            "default": "，,"
+          },
+          "split_probability": {
+            "type": "float",
+            "description": "概率分段触发概率",
+            "slider": {
+                    "min": 0,
+                    "max": 1,
+                    "step": 0.01
+                },
+            "default": 0.5
+          }
+
+
+        }
+  }
+
+}
