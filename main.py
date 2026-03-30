@@ -431,7 +431,7 @@ class Qwen3TTS(Star):
                 if not text:
                     continue
 
-                self._process_text_smart(text, pattern, segments, current_chain_buffer)
+                self._process_text_(text, pattern, segments, current_chain_buffer)
             else:
                 c_type = type(component).__name__.lower()
                 if 'reply' in c_type:
@@ -467,7 +467,7 @@ class Qwen3TTS(Star):
             segments.append(current_chain_buffer)
         return [seg for seg in segments if seg]
 
-    def _process_text_smart(self, text: str, pattern: str, segments: list, buffer: list):
+    def _process_text_(self, text: str, pattern: str, segments: list, buffer: list):
         """智能切分文本，支持括号/引号平衡和概率切分"""
         stack = []
         compiled_pattern = re.compile(pattern)
