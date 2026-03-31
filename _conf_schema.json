@@ -159,6 +159,11 @@
                  "description": "延迟系数(秒/字)",
                  "type": "float",
                  "default": 0.1
+               },
+              "linear_max": {
+                 "description": "线性延迟最大值（秒）",
+                 "type": "float",
+                 "default": 10.0
                }
             }
           },

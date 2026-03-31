@@ -7,6 +7,7 @@ import os
 import shutil
 import time
 import threading
+import uuid
 from typing import List, Dict, Optional
 from pathlib import Path
 
@@ -41,13 +42,14 @@ class Qwen3TTS(Star):
         self.gradio_max_save_file = config.get("client", {}).get("gradio_max_save_file", 100)
         self._gradio_client = None  # 懒加载
         self._gradio_client_lock = threading.Lock() #线程锁
+        self._gradio_predict_lock = threading.Lock()
 
         # 分段配置
         self.pair_map = {
             '"': '"', '《': '》', '（': '）', '(': ')',
             '[': ']', '{': '}', "'": "'", '【': '】', '<': '>'
         }
-        self.quote_chars = {'"', "'", "`"}
+        self.quote_chars = {'"', "`"}
 
         # tts配置
         self.gradio_tts_probability = config.get("tts_control", {}).get("gradio_tts_probability", 0.5)
@@ -57,7 +59,7 @@ class Qwen3TTS(Star):
         # 分段控制（统一使用 split_control 命名空间）
         self.enable_probabilistic_split = config.get("split_control", {}).get("enable_probabilistic_split", False)
         self.split_llmonly = config.get("split_control", {}).get("split_llmonly", True)
-        self.force_split_chars = config.get("split_control", {}).get("force_split_chars", ". 。？！；; \n \s")
+        self.force_split_chars = config.get("split_control", {}).get("force_split_chars", ". 。？！；; \\n \\s")
         self.probabilistic_split_chars = config.get("split_control", {}).get("probabilistic_split_chars", ",，")
         self.split_probability = config.get("split_control", {}).get("split_probability", 0.5)
 
@@ -67,6 +69,7 @@ class Qwen3TTS(Star):
         self.random_max = config.get("split_control", {}).get("random_control", {}).get("random_max", 3.0)
         self.linear_base = config.get("split_control", {}).get("linear_control", {}).get("linear_base", 0.5)
         self.linear_factor = config.get("split_control", {}).get("linear_control", {}).get("linear_factor", 0.1)
+        self.linear_max = config.get("split_control", {}).get("linear_control", {}).get("linear_max", 0.1)
         self.fixed_delay = config.get("split_control", {}).get("fixed_control", {}).get("fixed_delay", 1.5)
 
     # ---------- Qwen3-tts 端口调用 ----------
@@ -135,8 +138,8 @@ class Qwen3TTS(Star):
                 timestamp = str(time.time_ns())
                 wav_file = os.path.join(self.data_dir, f"tts_{timestamp}.wav")
             else:
-                text_hash = hashlib.md5(text.encode()).hexdigest()[:8]
-                wav_file = os.path.join(self.data_dir, f"temp_{text_hash}.wav")
+                unique_id = uuid.uuid4().hex
+                wav_file = os.path.join(self.data_dir, f"temp_{unique_id}.wav")
 
             loop = asyncio.get_running_loop()
             await asyncio.wait_for(
@@ -164,12 +167,14 @@ class Qwen3TTS(Star):
                 raise FileNotFoundError(f"提示文件不存在: {self.gradio_prompt_file}")
 
             client = self._get_gradio_client()
-            result = client.predict(
-                file_obj=handle_file(self.gradio_prompt_file),
-                text=text,
-                lang_disp="Auto",
-                api_name="/load_prompt_and_gen"
-            )
+            """互斥锁"""
+            with self._gradio_predict_lock:
+                result = client.predict(
+                    file_obj=handle_file(self.gradio_prompt_file),
+                    text=text,
+                    lang_disp="Auto",
+                    api_name="/load_prompt_and_gen"
+                )
             logger.debug(f"[Qwen3-TTS] 原始返回: {result}")
 
             if not isinstance(result, (list, tuple)) or len(result) < 2:
@@ -295,7 +300,6 @@ class Qwen3TTS(Star):
                 else:
                     split_chars = force_split_chars + probabilistic_split_chars
 
-
         if not split_chars:
             processed_chain = await self._process_tts_for_segment(event, result.chain)
             result.chain.clear()
@@ -303,7 +307,31 @@ class Qwen3TTS(Star):
             return
             # 对用户提供的标点符号进行转义，并构建字符类
 
-        split_pattern = f"[{re.escape(split_chars)}]+"
+        # 1. 定义需要识别的「正则特殊令牌」（可根据需要扩展，如 \d、\w、\t、\n 等）
+        special_token_re = re.compile(r'\\[sdwtn]')  # 匹配 \s、\d、\w、\t、\n
+
+        # 2. 从 split_chars 中提取「特殊令牌」和「普通字符」
+        special_tokens = special_token_re.findall(split_chars)  # 提取所有特殊令牌（如 ['\\s', '\\n']）
+        normal_chars = special_token_re.sub('', split_chars)  # 移除特殊令牌，剩下普通字符
+
+        # 3. 构建正则模式的各个分支
+        pattern_parts = []
+
+        # 处理普通字符：转义后放入字符类 [...]
+        if normal_chars:
+            escaped_normal = re.escape(normal_chars)
+            pattern_parts.append(f'[{escaped_normal}]')
+
+        # 处理特殊令牌：直接保留其正则含义
+        pattern_parts.extend(special_tokens)
+
+        # 4. 组合成最终正则（匹配一个或多个分隔符）
+        if not pattern_parts:
+            split_pattern = None  # 无分隔符时的兜底处理
+        else:
+            split_pattern = f'(?:{"|".join(pattern_parts)})+'
+
+        #split_pattern = f"[{re.escape(split_chars)}]+"
 
 
         do_split = True
@@ -500,7 +528,9 @@ class Qwen3TTS(Star):
         if self.delay_strategy == "随机":
             return random.uniform(self.random_min, self.random_max)
         elif self.delay_strategy == "按字数":
-            return self.linear_base + (len(text) * self.linear_factor)
+
+            return min(self.linear_max,self.linear_base + (len(text) * self.linear_factor))
+
         else:
             return self.fixed_delay
 
