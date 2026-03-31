@@ -6,7 +6,9 @@ import hashlib
 import os
 import shutil
 import time
+import threading
 from typing import List, Dict, Optional
+from pathlib import Path
 
 from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.star import Context, Star, register
@@ -35,8 +37,10 @@ class Qwen3TTS(Star):
         self.gradio_server_url = config.get("client", {}).get("gradio_server_url")
         self.gradio_prompt_file = config.get("client", {}).get("gradio_prompt_file")
         self.gradio_save_audio = config.get("client", {}).get("gradio_save_audio", True)
-
+        self.gradio_auto_clear_audio = config.get("client", {}).get("gradio_auto_clear_audio", False)
+        self.gradio_max_save_file = config.get("client", {}).get("gradio_max_save_file", 100)
         self._gradio_client = None  # 懒加载
+        self._gradio_client_lock = threading.Lock() #线程锁
 
         # 分段配置
         self.pair_map = {
@@ -52,8 +56,9 @@ class Qwen3TTS(Star):
 
         # 分段控制（统一使用 split_control 命名空间）
         self.enable_probabilistic_split = config.get("split_control", {}).get("enable_probabilistic_split", False)
+        self.split_llmonly = config.get("split_control", {}).get("split_llmonly", True)
+        self.force_split_chars = config.get("split_control", {}).get("force_split_chars", ". 。？！；; \n \s")
         self.probabilistic_split_chars = config.get("split_control", {}).get("probabilistic_split_chars", ",，")
-
         self.split_probability = config.get("split_control", {}).get("split_probability", 0.5)
 
         # 延迟策略配置（统一放在 split_control 下）
@@ -66,9 +71,11 @@ class Qwen3TTS(Star):
 
     # ---------- Qwen3-tts 端口调用 ----------
     def _get_gradio_client(self):
-        if self._gradio_client is None:
-            self._gradio_client = Client(self.gradio_server_url)
-        return self._gradio_client
+        """线程安全的 Gradio 客户端获取"""
+        with self._gradio_client_lock:
+            if self._gradio_client is None:
+                self._gradio_client = Client(self.gradio_server_url)
+            return self._gradio_client
 
     def _merge_continuous_plain(self, components: List[BaseMessageComponent]) -> List[BaseMessageComponent]:
         """合并列表中连续的 Plain 组件为一个 Plain，其他组件保持原序"""
@@ -88,6 +95,38 @@ class Qwen3TTS(Star):
             merged.append(Plain(current_text))
         return merged
 
+    def _cleanup_old_audio(self):
+        """清理旧的音频文件，保留最近的100个，避免磁盘膨胀"""
+        if not self.gradio_auto_clear_audio:
+            logger.debug(f"[Qwen3-TTS] 自动清理未开启")
+            return
+
+        try:
+            files = []
+            for f in os.listdir(self.data_dir):
+                if f.startswith("tts_") and f.endswith(".wav"):
+                    full_path = os.path.join(self.data_dir, f)
+                    files.append(full_path)
+
+            if len(files) <= self.gradio_max_save_file:
+                logger.debug(f"[Qwen3-TTS] 音频文件数量 {len(files)} ≤ {self.gradio_max_save_file}，无需清理")
+                return
+
+            # 按修改时间倒序，保留最近100个
+            files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+            to_delete = files[self.gradio_max_save_file:]
+
+            for old_file in to_delete:
+                try:
+                    if os.path.exists(old_file):
+                        os.remove(old_file)
+                        logger.debug(f"[Qwen3-TTS] 清理旧音频: {old_file}")
+                except Exception as e:
+                    logger.info(f"[Qwen3-TTS] 删除文件 {old_file} 失败: {e}")
+
+        except Exception as e:
+            logger.exception(f"[Qwen3-TTS] 清理旧音频失败: {e}")
+
     async def generate_tts(self, text: str) -> Optional[str]:
         """生成 TTS 音频文件，返回文件路径"""
         try:
@@ -100,15 +139,20 @@ class Qwen3TTS(Star):
                 wav_file = os.path.join(self.data_dir, f"temp_{text_hash}.wav")
 
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None,
-                self._call_gradio_tts,
-                text,
-                wav_file
+            await asyncio.wait_for(
+                loop.run_in_executor(None, self._call_gradio_tts, text, wav_file),
+                timeout=self.config.get("client", {}).get("gradio_server_timeout", 30.0)
             )
+
+            # 生成成功后清理旧文件（异步非阻塞）
+            if self.gradio_save_audio:
+             asyncio.create_task(asyncio.to_thread(self._cleanup_old_audio))
 
             return wav_file if os.path.exists(wav_file) else None
 
+        except asyncio.TimeoutError:
+            logger.error(f"generate_tts 超时: {text[:50]}...")
+            return None
         except Exception as e:
             logger.error(f"generate_tts error: {e}")
             return None
@@ -142,13 +186,47 @@ class Qwen3TTS(Star):
             if not os.path.exists(audio_path):
                 raise FileNotFoundError(f"临时音频文件不存在: {audio_path}")
 
+            # ----- 路径安全性校验（信任边界） -----
+            # 定义允许的安全目录列表
+            safe_dirs = [
+                self.data_dir,  # 插件数据目录
+                "/tmp",  # Linux/macOS 临时目录
+                "/var/tmp",  # Linux/macOS 持久临时目录
+                os.environ.get("TEMP", ""),  # Windows 临时目录
+                os.environ.get("TMP", ""),  # 备用
+            ]
+            # 过滤空字符串并转换为绝对路径
+            safe_dirs = [os.path.abspath(d) for d in safe_dirs if d]
+
+            # 获取音频文件的真实路径（解析符号链接，避免软链接绕过）
+            real_audio_path = os.path.realpath(audio_path)
+
+            # 检查是否在任一安全目录内
+            is_safe = False
+            for safe_dir in safe_dirs:
+                # 如果安全目录不存在，跳过（避免误判）
+                if not os.path.exists(safe_dir):
+                    continue
+                # 判断 real_audio_path 是否以 safe_dir 开头（包括等于的情况）
+                if real_audio_path.startswith(safe_dir + os.sep) or real_audio_path == safe_dir:
+                    is_safe = True
+                    break
+
+            if not is_safe:
+                raise ValueError(f"音频路径不在安全目录内: {audio_path}")
+
+            # 校验文件存在性
+            if not os.path.exists(real_audio_path):
+                raise FileNotFoundError(f"临时音频文件不存在: {real_audio_path}")
+
             # 状态检查
             error_keywords = ["error", "fail", "失败", "异常"]
             if any(keyword in status.lower() for keyword in error_keywords):
                 raise Exception(f"Qwen3-TTS 返回错误状态: {status}")
 
+            # 复制文件
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            shutil.copy2(audio_path, output_path)
+            shutil.copy2(real_audio_path, output_path)
             logger.info(f"[Qwen3-TTS] 已保存至: {output_path}")
 
         except Exception as e:
@@ -181,7 +259,7 @@ class Qwen3TTS(Star):
             return
 
         # 2. 作用范围检查
-        split_llmonly = self.config.get("split_control", {}).get("split_llmonly", True)
+        split_llmonly = self.split_llmonly
         is_llm_reply = getattr(event, "__is_llm_reply", False)
 
         if split_llmonly and not is_llm_reply:
@@ -200,8 +278,8 @@ class Qwen3TTS(Star):
         """
 
         #概率分段优化
-        force_split_chars = self.config.get("split_control", {}).get("force_split_chars")
-        probabilistic_split_chars = self.config.get("split_control", {}).get("probabilistic_split_chars", "，,")
+        force_split_chars = self.force_split_chars
+        probabilistic_split_chars = self.probabilistic_split_chars
 
         split_chars = ""
 
@@ -219,6 +297,9 @@ class Qwen3TTS(Star):
 
 
         if not split_chars:
+            processed_chain = await self._process_tts_for_segment(event, result.chain)
+            result.chain.clear()
+            result.chain.extend(processed_chain)
             return
             # 对用户提供的标点符号进行转义，并构建字符类
 
@@ -252,6 +333,9 @@ class Qwen3TTS(Star):
 
         # 如果只有一段，且不需要清理，直接放行
         if len(segments) <= 1:
+            processed_chain = await self._process_tts_for_segment(event, result.chain)
+            result.chain.clear()
+            result.chain.extend(processed_chain)
             return
 
         # 5. 注入引用 (Reply) - 仅第一段
@@ -381,8 +465,9 @@ class Qwen3TTS(Star):
             except (TypeError, ValueError):
                 tts_trigger_probability = 1.0
 
-            if random.random() > tts_trigger_probability:
-                logger.info(f"框架 TTS 概率 {random.random():.2f} > 设定概率 {tts_trigger_probability:.2f}，跳过 TTS")
+            tts_random = random.random()
+            if tts_random > tts_trigger_probability:
+                logger.info(f"框架 TTS 概率 {tts_random:.2f} > 设定概率 {tts_trigger_probability:.2f}，跳过 TTS")
                 return segment
 
             dual_output = tts_config.get("dual_output", False)

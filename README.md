@@ -80,10 +80,13 @@ http://localhost:8000/
 
 | 字段 | 说明                 | 建议/取值                        |
 | --- |--------------------|------------------------------|
-| `use_gradio_tts` | 文字转语音开关            | `开 `                           |
+| `use_gradio_tts` | 文字转语音开关            | `开 `                         |
 | `gradio_server_url` | Qwen3-TTS API 端口地址 | 默认为 `http://localhost:8000/` |
-| `gradio_prompt_file` | 音色文件（.pt）路径        |                              |
-| `gradio_save_audio` | 是否保存生成的音频文件        | `开  `                          |
+| `gradio_server_timeout` | API请求超时时间          | `30`                         |
+| `gradio_prompt_file` | 音色文件（.pt）路径        | `D:\...\...\.pt`             |
+| `gradio_save_audio` | 是否保存生成的音频文件        | `开  `                        |
+| `gradio_auto_clear_audio` | 是否自动清理生成的音频文件      | `关  `                        |
+| `gradio_max_save_file` | 最多保存的文件数量          | `100  `                      |
 
 
 ### 4.2 TTS配置

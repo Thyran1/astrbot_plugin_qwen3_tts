@@ -17,6 +17,17 @@
                 "hint": "默认http://localhost:8000/",
                 "default": "http://localhost:8000/"
             },
+            "gradio_server_timeout": {
+            "type": "float",
+            "description": "API请求超时时间（ms）",
+
+            "default": 30.0,
+                "slider": {
+                    "min": 30,
+                    "max": 180,
+                    "step": 1
+                }
+            },
             "gradio_prompt_file": {
             "type": "string",
             "description": "音色文件路径",
@@ -28,6 +39,17 @@
             "description": "保存生成的音频文件",
             "hint": "保存的文件地址..\\data\\plugin_data\\astrbot_plugin_qwen3_tts",
             "default": false
+            },
+            "gradio_auto_clear_audio": {
+            "type": "bool",
+            "description": "自动清理音频文件",
+            "default": false
+           },
+            "gradio_max_save_file": {
+            "type": "int",
+            "description": "最多保存的文件数",
+            "hint": "超出会自动清理（需开启自动清理文件）",
+            "default": 100
             }
         }
     },
