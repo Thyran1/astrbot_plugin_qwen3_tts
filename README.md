@@ -101,21 +101,22 @@ http://localhost:8000/
 
 这些参数会作为每次请求 `/tts` 的默认值：
 
-| 字段              | 说明        | 建议/取值           |
-|-----------------|-----------|-----------------|
-| `enable_split`  | 启用分段      | `开 `            |
-| `split_llmonly`   | 只处理LLM结果  | `开`             |
-| `force_split_chars`   | 强制分段的标点符号 | `. 。？！；; \n \s` |
-| `max_segments`  | 最大分段数量    | 建议`5-8`         |
-| `delay_strategy` | 延迟模式      |                 |
-| `linear_base`   | 按字数延迟基础时间 |                 |
-| `linear_factor` | 按字数延迟系数   |                 |
-| `random_min`    | 随机延迟最小值   |                 |
-| `random_max`    | 随机延迟最大值   |                 |
-| `fixed_delay`    | 固定延迟时间    |                 |
+| 字段                           | 说明        | 建议/取值           |
+|------------------------------|-----------|-----------------|
+| `enable_split`               | 启用分段      | `开 `            |
+| `split_llmonly`              | 只处理LLM结果  | `开`             |
+| `force_split_chars`          | 强制分段的标点符号 | `. 。？！；; \n \s` |
+| `max_segments`               | 最大分段数量    | 建议`5-8`         |
+| `delay_strategy`             | 延迟模式      |                 |
+| `linear_base`                | 按字数延迟基础时间 |                 |
+| `linear_factor`              | 按字数延迟系数   |                 |
+| `linear_max`                 | 按字数延迟最大值  | 建议`10`           |
+| `random_min`                 | 随机延迟最小值   |                 |
+| `random_max`                 | 随机延迟最大值   |                 |
+| `fixed_delay`                | 固定延迟时间    |                 |
 | `enable_probabilistic_split` | 启用概率分段    |                 |a
-| `probabilistic_split_chars`    | 概率分段字符    | 推荐`, ，`          |
-| `split_probability`    | 概率分段触发概率  |                 |
+| `probabilistic_split_chars`  | 概率分段字符    | 推荐`, ，`         |
+| `split_probability`          | 概率分段触发概率  |                 |
 
 
 ---
