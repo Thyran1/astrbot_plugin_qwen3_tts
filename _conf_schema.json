@@ -92,6 +92,7 @@
         "hint": "模拟正常人说话",
         "type": "object",
         "items": {
+
           "split_llmonly":{
             "description": "只处理LLM结果",
             "hint": "开启后只对LLM生成结果进行分段，推荐开启",
@@ -100,14 +101,14 @@
           },
             "force_split_chars": {
             "description": "强制分段字符",
-            "hint": "\\s表示遇到空格符会分段 \\n表示遇到换行符会分段",
+            "hint": "遇到下列字符会直接分段",
             "type": "string",
             "default": ". 。？！；; \\n \\s"
           },
              "enable_probabilistic_split": {
             "type": "bool",
             "description": "启用概率分段",
-            "hint": "遇到标点时按概率分段",
+            "hint": "启用后遇到下列标点时有概率分段",
             "default": false
           },
           "probabilistic_split_chars": {
