@@ -30,14 +30,17 @@ class Qwen3TTS(Star):
         self.config = config
         self.plugin_name = "astrbot_plugin_qwen3_tts"
         # 数据目录（使用框架规范）
-        self.data_dir = StarTools.get_data_dir(self.plugin_name)
+        self.data_dir: Path = StarTools.get_data_dir(self.plugin_name)
+        self.data_dir.mkdir(parents=True, exist_ok=True)  # 确保目录存在
 
         self.use_gradio_tts = config.get("use_gradio_tts", False)
 
         # Qwen3-tts端口配置
         self.gradio_server_url = config.get("client", {}).get("gradio_server_url")
+        self.gradio_server_timeout = config.get("client", {}).get("gradio_server_timeout",30.0)
         self.gradio_prompt_file = config.get("client", {}).get("gradio_prompt_file")
-        self.gradio_save_audio = config.get("client", {}).get("gradio_save_audio", True)
+        self.gradio_save_audio = True
+        #self.gradio_save_audio = config.get("client", {}).get("gradio_save_audio", True)
         self.gradio_auto_clear_audio = config.get("client", {}).get("gradio_auto_clear_audio", False)
         self.gradio_max_save_file = config.get("client", {}).get("gradio_max_save_file", 100)
         self._gradio_client = None  # 懒加载
@@ -47,7 +50,7 @@ class Qwen3TTS(Star):
         # 分段配置
         self.pair_map = {
             '"': '"', '《': '》', '（': '）', '(': ')',
-            '[': ']', '{': '}', "'": "'", '【': '】', '<': '>'
+            '[': ']', '{': '}', '【': '】', '<': '>'
         }
         self.quote_chars = {'"', "`"}
 
@@ -69,7 +72,7 @@ class Qwen3TTS(Star):
         self.random_max = config.get("split_control", {}).get("random_control", {}).get("random_max", 3.0)
         self.linear_base = config.get("split_control", {}).get("linear_control", {}).get("linear_base", 0.5)
         self.linear_factor = config.get("split_control", {}).get("linear_control", {}).get("linear_factor", 0.1)
-        self.linear_max = config.get("split_control", {}).get("linear_control", {}).get("linear_max", 0.1)
+        self.linear_max = config.get("split_control", {}).get("linear_control", {}).get("linear_max", 10.0)
         self.fixed_delay = config.get("split_control", {}).get("fixed_control", {}).get("fixed_delay", 1.5)
 
     # ---------- Qwen3-tts 端口调用 ----------
@@ -99,33 +102,42 @@ class Qwen3TTS(Star):
         return merged
 
     def _cleanup_old_audio(self):
-        """清理旧的音频文件，保留最近的100个，避免磁盘膨胀"""
+        """清理旧的音频文件，保留最近的max_save_file个，避免磁盘膨胀"""
         if not self.gradio_auto_clear_audio:
             logger.debug(f"[Qwen3-TTS] 自动清理未开启")
             return
 
         try:
             files = []
-            for f in os.listdir(self.data_dir):
-                if f.startswith("tts_") and f.endswith(".wav"):
-                    full_path = os.path.join(self.data_dir, f)
-                    files.append(full_path)
+            for f in self.data_dir.iterdir():
+                if f.name.startswith("tts_") and f.suffix == ".wav":
+                    files.append(f)
 
             if len(files) <= self.gradio_max_save_file:
                 logger.debug(f"[Qwen3-TTS] 音频文件数量 {len(files)} ≤ {self.gradio_max_save_file}，无需清理")
                 return
 
-            # 按修改时间倒序，保留最近100个
+            # 按修改时间倒序，保留最近的文件
             files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
-            to_delete = files[self.gradio_max_save_file:]
+            now = time.time()
+            to_delete = []
+
+            for f in files[self.gradio_max_save_file:]:
+                file_age = now - f.stat().st_mtime
+                if file_age > 300:
+                    to_delete.append(f)
+                else:
+                    # 虽然数量超出，但文件太新，暂不删除
+                    logger.debug(f"[Qwen3-TTS] 跳过删除新文件: {f.name}, 年龄 {file_age:.1f}s < {300}s")
+
 
             for old_file in to_delete:
                 try:
-                    if os.path.exists(old_file):
-                        os.remove(old_file)
-                        logger.debug(f"[Qwen3-TTS] 清理旧音频: {old_file}")
+                    if old_file.exists():
+                        old_file.unlink()
+                        logger.debug(f"[Qwen3-TTS] 清理旧音频: {old_file.name}")
                 except Exception as e:
-                    logger.info(f"[Qwen3-TTS] 删除文件 {old_file} 失败: {e}")
+                    logger.warning(f"[Qwen3-TTS] 删除文件 {old_file.name} 失败: {e}")
 
         except Exception as e:
             logger.exception(f"[Qwen3-TTS] 清理旧音频失败: {e}")
@@ -133,25 +145,20 @@ class Qwen3TTS(Star):
     async def generate_tts(self, text: str) -> Optional[str]:
         """生成 TTS 音频文件，返回文件路径"""
         try:
-            if self.gradio_save_audio:
-                # 使用纳秒级时间戳避免并发覆盖
-                timestamp = str(time.time_ns())
-                wav_file = os.path.join(self.data_dir, f"tts_{timestamp}.wav")
-            else:
-                unique_id = uuid.uuid4().hex
-                wav_file = os.path.join(self.data_dir, f"temp_{unique_id}.wav")
+
+
+            timestamp = str(time.time_ns())
+            wav_file = self.data_dir / f"tts_{timestamp}.wav"
 
             loop = asyncio.get_running_loop()
             await asyncio.wait_for(
                 loop.run_in_executor(None, self._call_gradio_tts, text, wav_file),
-                timeout=self.config.get("client", {}).get("gradio_server_timeout", 30.0)
+                timeout=self.gradio_server_timeout
             )
-
             # 生成成功后清理旧文件（异步非阻塞）
-            if self.gradio_save_audio:
-             asyncio.create_task(asyncio.to_thread(self._cleanup_old_audio))
+            asyncio.create_task(asyncio.to_thread(self._cleanup_old_audio))
 
-            return wav_file if os.path.exists(wav_file) else None
+            return wav_file if wav_file.exists() else None
 
         except asyncio.TimeoutError:
             logger.error(f"generate_tts 超时: {text[:50]}...")
@@ -163,8 +170,10 @@ class Qwen3TTS(Star):
     def _call_gradio_tts(self, text: str, output_path: str):
         """同步调用 Qwen3-tts 服务（在线程池中执行）"""
         try:
-            if not os.path.exists(self.gradio_prompt_file):
-                raise FileNotFoundError(f"提示文件不存在: {self.gradio_prompt_file}")
+
+            prompt_file = Path(self.gradio_prompt_file)
+            if not prompt_file.exists():
+                raise FileNotFoundError(f"提示文件不存在: {prompt_file}")
 
             client = self._get_gradio_client()
             """互斥锁"""
@@ -194,34 +203,26 @@ class Qwen3TTS(Star):
             # ----- 路径安全性校验（信任边界） -----
             # 定义允许的安全目录列表
             safe_dirs = [
-                self.data_dir,  # 插件数据目录
-                "/tmp",  # Linux/macOS 临时目录
-                "/var/tmp",  # Linux/macOS 持久临时目录
-                os.environ.get("TEMP", ""),  # Windows 临时目录
-                os.environ.get("TMP", ""),  # 备用
+                self.data_dir,
+                Path("/tmp"),
+                Path("/var/tmp"),
+                Path(os.environ.get("TEMP", "")),
+                Path(os.environ.get("TMP", "")),
             ]
             # 过滤空字符串并转换为绝对路径
-            safe_dirs = [os.path.abspath(d) for d in safe_dirs if d]
+            safe_dirs = [d.resolve() for d in safe_dirs if d and d.exists()]
 
             # 获取音频文件的真实路径（解析符号链接，避免软链接绕过）
-            real_audio_path = os.path.realpath(audio_path)
+            real_audio_path = Path(audio_path).resolve()
 
             # 检查是否在任一安全目录内
-            is_safe = False
-            for safe_dir in safe_dirs:
-                # 如果安全目录不存在，跳过（避免误判）
-                if not os.path.exists(safe_dir):
-                    continue
-                # 判断 real_audio_path 是否以 safe_dir 开头（包括等于的情况）
-                if real_audio_path.startswith(safe_dir + os.sep) or real_audio_path == safe_dir:
-                    is_safe = True
-                    break
+            is_safe = any(real_audio_path.is_relative_to(safe_dir) or real_audio_path == safe_dir
+                          for safe_dir in safe_dirs)
 
             if not is_safe:
                 raise ValueError(f"音频路径不在安全目录内: {audio_path}")
 
-            # 校验文件存在性
-            if not os.path.exists(real_audio_path):
+            if not real_audio_path.exists():
                 raise FileNotFoundError(f"临时音频文件不存在: {real_audio_path}")
 
             # 状态检查
@@ -230,7 +231,7 @@ class Qwen3TTS(Star):
                 raise Exception(f"Qwen3-TTS 返回错误状态: {status}")
 
             # 复制文件
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(real_audio_path, output_path)
             logger.info(f"[Qwen3-TTS] 已保存至: {output_path}")
 
@@ -456,7 +457,7 @@ class Qwen3TTS(Star):
                         logger.info(f"[Qwen3-TTS] 请求: {comp.text[:50]}...")
                         audio_path = await self.generate_tts(comp.text)
                         if audio_path:
-                            new_segment.append(Record(file=audio_path, url=audio_path))
+                            new_segment.append(Record(file=str(audio_path), url=str(audio_path)))
                         else:
                             logger.warning(f"[Qwen3-TTS] 生成失败，使用原文本")
                             new_segment.append(comp)
@@ -529,7 +530,7 @@ class Qwen3TTS(Star):
             return random.uniform(self.random_min, self.random_max)
         elif self.delay_strategy == "按字数":
 
-            return min(self.linear_max,self.linear_base + (len(text) * self.linear_factor))
+            return min(self.linear_max, self.linear_base + (len(text) * self.linear_factor))
 
         else:
             return self.fixed_delay
