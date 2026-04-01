@@ -103,7 +103,7 @@
             "description": "强制分段字符",
             "hint": "遇到下列字符会直接分段",
             "type": "string",
-            "default": ". 。？！；; \\n \\s"
+            "default": ". 。？！；; \\n"
           },
              "enable_probabilistic_split": {
             "type": "bool",
